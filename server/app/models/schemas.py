@@ -42,3 +42,11 @@ class HealthResponse(BaseModel):
     """健康检查响应"""
     status: str = "ok"
     whisper_model_loaded: bool = False
+
+
+class JoplinWriteRequest(BaseModel):
+    """直接写入 Joplin 的请求"""
+    title: str                  # 笔记标题
+    body: str                   # 笔记内容
+    joplin_path: str            # Joplin 笔记本路径
+    tags: Optional[list] = []   # 标签列表 (可选)

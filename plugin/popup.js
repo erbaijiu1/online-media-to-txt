@@ -34,44 +34,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.storage.local.set({ backendUrl: backendUrlInput.value.trim() });
   });
 
-  // === MP3 扫描 ===
-  // 方式1: 通过 content.js 消息扫描
-  try {
-    chrome.tabs.sendMessage(tab.id, { action: 'scanAudio' }, (response) => {
-      if (chrome.runtime.lastError || !response) {
-        // content.js 可能未注入，使用方式2
-        fallbackScan(tab.id);
-        return;
-      }
-      renderUrls(response.urls || []);
-    });
-  } catch (e) {
-    fallbackScan(tab.id);
-  }
+  // === MP3 扫描 (网络嗅探 + DOM 扫描合并) ===
+  const allUrls = new Set();
 
-  // 方式2: 直接注入脚本扫描 (作为 fallback)
-  function fallbackScan(tabId) {
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      func: () => {
-        const exts = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac'];
-        const urls = new Set();
-        document.querySelectorAll('a[href], audio[src], source[src], video[src], embed[src]').forEach(el => {
-          const url = el.href || el.src;
-          if (!url) return;
-          const lower = url.toLowerCase().split('?')[0];
-          if (exts.some(ext => lower.endsWith(ext))) urls.add(url);
-        });
-        return Array.from(urls);
+  // 方式1: 从 background.js 获取网络请求中嗅探到的音频 (核心方式)
+  chrome.runtime.sendMessage({ action: 'getAudioUrls', tabId: tab.id }, (bgResponse) => {
+    if (bgResponse && bgResponse.urls) {
+      bgResponse.urls.forEach(url => allUrls.add(url));
+    }
+
+    // 方式2: 从 content.js 获取 DOM 中的音频
+    chrome.tabs.sendMessage(tab.id, { action: 'scanAudio' }, (domResponse) => {
+      if (!chrome.runtime.lastError && domResponse && domResponse.urls) {
+        domResponse.urls.forEach(url => allUrls.add(url));
       }
-    }, (results) => {
-      if (results && results[0]) {
-        renderUrls(results[0].result || []);
+
+      // 方式3: 如果前两种都没结果，直接注入脚本扫描 DOM
+      if (allUrls.size === 0) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const exts = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac'];
+            const urls = new Set();
+            document.querySelectorAll('a[href], audio[src], source[src], video[src], embed[src]').forEach(el => {
+              const url = el.href || el.src;
+              if (!url) return;
+              const lower = url.toLowerCase().split('?')[0];
+              if (exts.some(ext => lower.endsWith(ext))) urls.add(url);
+            });
+            return Array.from(urls);
+          }
+        }, (results) => {
+          if (results && results[0] && results[0].result) {
+            results[0].result.forEach(url => allUrls.add(url));
+          }
+          renderUrls(Array.from(allUrls));
+        });
       } else {
-        renderUrls([]);
+        renderUrls(Array.from(allUrls));
       }
     });
-  }
+  });
 
   // === 渲染 URL 列表 ===
   function renderUrls(urls) {

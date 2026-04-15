@@ -89,46 +89,74 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
     """
     后台执行完整的转换流程：
     下载 MP3 → Whisper 转录 → LLM 整理 → 写入 Joplin
+    
+    缓存策略：
+    - MP3 已存在则跳过下载
+    - _final.txt 已存在则跳过 Whisper + LLM，直接同步 Joplin
+    - 只有 Joplin 同步成功后才删除 MP3（保留 txt 备份）
     """
     settings = get_settings()
     temp_dir = settings.TEMP_AUDIO_DIR
     os.makedirs(temp_dir, exist_ok=True)
 
     local_path = os.path.join(temp_dir, f"{alias}.mp3")
+    final_txt_path = os.path.join(temp_dir, f"{alias}_final.txt")
 
     try:
-        # ===== 1. 下载 MP3 =====
-        _update_task(task_id, TaskStatus.DOWNLOADING, f"正在下载: {alias}")
-        logger.info(f"[{task_id}] 开始下载: {url}")
+        final_content = None
 
-        response = requests.get(url, stream=True, timeout=60)
-        response.raise_for_status()
+        # 检查是否有已处理好的文本文件（之前处理过但 Joplin 同步失败的情况）
+        if os.path.exists(final_txt_path):
+            logger.info(f"[{task_id}] 📄 发现已处理的文本文件，跳过下载和转录: {final_txt_path}")
+            _update_task(task_id, TaskStatus.LLM_PROCESSING, "发现缓存的文本，跳过下载和转录")
+            with open(final_txt_path, "r", encoding="utf-8") as f:
+                final_content = f.read()
+            if final_content.strip():
+                logger.info(f"[{task_id}] ✅ 从缓存读取文本，共 {len(final_content)} 字")
 
-        with open(local_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        logger.info(f"[{task_id}] ✅ 下载完成: {local_path}")
+        # 如果没有缓存的最终文本，执行完整流程
+        if not final_content or not final_content.strip():
+            # ===== 1. 下载 MP3 =====
+            if os.path.exists(local_path):
+                logger.info(f"[{task_id}] ⏩ MP3 已存在，跳过下载: {local_path}")
+                _update_task(task_id, TaskStatus.DOWNLOADING, f"MP3 已存在，跳过下载")
+            else:
+                _update_task(task_id, TaskStatus.DOWNLOADING, f"正在下载: {alias}")
+                logger.info(f"[{task_id}] 开始下载: {url}")
 
-        # ===== 2. Whisper 转文字 =====
-        _update_task(task_id, TaskStatus.TRANSCRIBING, "正在识别音频内容（Whisper）...")
-        logger.info(f"[{task_id}] 开始 Whisper 转录...")
+                response = requests.get(url, stream=True, timeout=60)
+                response.raise_for_status()
 
-        model = get_whisper_model()
-        segments, _ = model.transcribe(local_path, beam_size=1, vad_filter=True)
-        raw_text = "\n".join([s.text for s in segments])
+                with open(local_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                logger.info(f"[{task_id}] ✅ 下载完成: {local_path}")
 
-        if not raw_text.strip():
-            _update_task(task_id, TaskStatus.FAILED, error="音频识别结果为空")
-            return
+            # ===== 2. Whisper 转文字 =====
+            _update_task(task_id, TaskStatus.TRANSCRIBING, "正在识别音频内容（Whisper）...")
+            logger.info(f"[{task_id}] 开始 Whisper 转录...")
 
-        logger.info(f"[{task_id}] ✅ 转录完成，共 {len(raw_text)} 字")
+            model = get_whisper_model()
+            segments, _ = model.transcribe(local_path, beam_size=1, vad_filter=True)
+            raw_text = "\n".join([s.text for s in segments])
 
-        # ===== 3. LLM 文本整理 =====
-        _update_task(task_id, TaskStatus.LLM_PROCESSING, "正在调用 LLM 整理文本...")
-        logger.info(f"[{task_id}] 开始 LLM 处理...")
+            if not raw_text.strip():
+                _update_task(task_id, TaskStatus.FAILED, error="音频识别结果为空")
+                return
 
-        final_content = process_text_with_prompt(raw_text)
-        logger.info(f"[{task_id}] ✅ LLM 处理完成")
+            logger.info(f"[{task_id}] ✅ 转录完成，共 {len(raw_text)} 字")
+
+            # ===== 3. LLM 文本整理 =====
+            _update_task(task_id, TaskStatus.LLM_PROCESSING, "正在调用 LLM 整理文本...")
+            logger.info(f"[{task_id}] 开始 LLM 处理...")
+
+            final_content = process_text_with_prompt(raw_text)
+            logger.info(f"[{task_id}] ✅ LLM 处理完成")
+
+            # 保存处理后的文本到本地（缓存，防止 Joplin 同步失败后需要重新处理）
+            with open(final_txt_path, "w", encoding="utf-8") as f:
+                f.write(final_content)
+            logger.info(f"[{task_id}] 💾 已保存处理结果: {final_txt_path}")
 
         # ===== 4. 写入 Joplin =====
         _update_task(task_id, TaskStatus.SYNCING_JOPLIN, "正在同步到 Joplin...")
@@ -146,8 +174,14 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
         if sync_result:
             _update_task(task_id, TaskStatus.COMPLETED, "✅ 全部完成！已同步到 Joplin")
             logger.info(f"[{task_id}] ✅ 全部完成")
+
+            # 同步成功后才删除 MP3 临时文件（保留 txt 作为备份）
+            if os.path.exists(local_path):
+                os.remove(local_path)
+                logger.info(f"[{task_id}] 🗑️ 已清理 MP3 临时文件")
         else:
             _update_task(task_id, TaskStatus.FAILED, error="Joplin 同步失败，请检查路径和 Token")
+            logger.warning(f"[{task_id}] ⚠️ Joplin 同步失败，保留所有文件以备重试")
 
     except requests.exceptions.RequestException as e:
         logger.error(f"[{task_id}] 下载失败: {e}")
@@ -155,11 +189,3 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
     except Exception as e:
         logger.error(f"[{task_id}] 处理出错: {e}", exc_info=True)
         _update_task(task_id, TaskStatus.FAILED, error=f"处理出错: {str(e)}")
-    finally:
-        # 清理临时文件
-        if os.path.exists(local_path):
-            try:
-                os.remove(local_path)
-                logger.info(f"[{task_id}] 🗑️ 已清理临时文件")
-            except OSError:
-                pass
