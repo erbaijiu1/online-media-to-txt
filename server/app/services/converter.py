@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 tasks: Dict[str, dict] = {}
 
 # 线程池 (Whisper 是 CPU 密集型，限制并发)
-executor = ThreadPoolExecutor(max_workers=2)
+executor = ThreadPoolExecutor(max_workers=5)
 
 # 全局 Whisper 模型 (启动时加载一次)
 _whisper_model: WhisperModel = None

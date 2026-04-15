@@ -3,7 +3,7 @@
   "name": "Joplin 音频采集器",
   "description": "嗅探网页中的音频链接，转文字后同步到 Joplin",
   "version": "1.1",
-  "permissions": ["activeTab", "scripting", "storage", "webRequest"],
+  "permissions": ["activeTab", "scripting", "storage", "webRequest", "webNavigation"],
   "host_permissions": [
     "http://localhost:8000/*",
     "<all_urls>"

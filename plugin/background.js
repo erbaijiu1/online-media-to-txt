@@ -76,6 +76,31 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 /**
+ * 仅在刷新当前页面时清理该 tab 的缓存状态
+ */
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  if (details.transitionType !== 'reload') return;
+
+  const tabId = details.tabId;
+  delete tabAudioUrls[tabId];
+
+  chrome.storage.local.get(['popupStateByTab', 'activeTasksByTab'], (res) => {
+    const popupStateByTab = res.popupStateByTab || {};
+    const activeTasksByTab = res.activeTasksByTab || {};
+
+    if (Object.prototype.hasOwnProperty.call(popupStateByTab, tabId)) {
+      delete popupStateByTab[tabId];
+    }
+    if (Object.prototype.hasOwnProperty.call(activeTasksByTab, tabId)) {
+      delete activeTasksByTab[tabId];
+    }
+
+    chrome.storage.local.set({ popupStateByTab, activeTasksByTab });
+  });
+});
+
+/**
  * 响应来自 popup 的消息
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
