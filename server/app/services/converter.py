@@ -164,7 +164,7 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
 
         joplin = JoplinToolbox(settings.JOPLIN_TOKEN, url=settings.JOPLIN_HOST)
         note_body = f"{final_content}\n\n---\n> **原始音频地址:** {url}"
-        sync_result = joplin.create_note(
+        sync_result, error_msg = joplin.create_note(
             title=alias,
             body=note_body,
             notebook_path=joplin_path,
@@ -180,8 +180,9 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
                 os.remove(local_path)
                 logger.info(f"[{task_id}] 🗑️ 已清理 MP3 临时文件")
         else:
-            _update_task(task_id, TaskStatus.FAILED, error="Joplin 同步失败，请检查路径和 Token")
-            logger.warning(f"[{task_id}] ⚠️ Joplin 同步失败，保留所有文件以备重试")
+            error_detail = error_msg or "Joplin 同步失败，请检查路径和 Token"
+            _update_task(task_id, TaskStatus.FAILED, error=error_detail)
+            logger.warning(f"[{task_id}] ⚠️ Joplin 同步失败: {error_detail}，保留所有文件以备重试")
 
     except requests.exceptions.RequestException as e:
         logger.error(f"[{task_id}] 下载失败: {e}")

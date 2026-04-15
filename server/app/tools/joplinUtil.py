@@ -72,6 +72,7 @@ class JoplinToolbox:
     def create_note(self, title, body, notebook_path, tags=[]):
         """
         核心方法：只有路径完全正确，才会写入。
+        返回: (note_id, error_message) 元组
         """
         try:
             # 1. $O(1)$ 查找 ID
@@ -86,14 +87,16 @@ class JoplinToolbox:
                 self.api.add_tag_to_note(tag_id=tag_id, note_id=note_id)
 
             print(f"✨ 同步成功: [{notebook_path}] -> {title}")
-            return note_id
+            return note_id, None
 
         except FileNotFoundError as e:
-            print(f"❌ 路径错误: {e}")
-            return None
+            error_msg = f"❌ 路径错误: {e}"
+            print(error_msg)
+            return None, error_msg
         except Exception as e:
-            print(f"❌ 系统错误: {str(e)}")
-            return None
+            error_msg = f"❌ 系统错误: {str(e)}"
+            print(error_msg)
+            return None, error_msg
 
 
 if __name__ == "__main__":

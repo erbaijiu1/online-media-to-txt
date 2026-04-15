@@ -4,8 +4,12 @@ from app.models.schemas import (
     ConvertResponse,
     TaskStatusResponse,
     HealthResponse,
+    JoplinWriteRequest,
 )
 from app.services.converter import submit_task, get_task_status, is_whisper_loaded
+from app.tools.joplinUtil import JoplinToolbox
+
+from app.config import get_settings
 
 router = APIRouter(prefix="/api", tags=["convert"])
 
@@ -49,3 +53,50 @@ async def health_check():
         status="ok",
         whisper_model_loaded=is_whisper_loaded()
     )
+
+
+@router.post("/joplin/write")
+async def write_to_joplin(req: JoplinWriteRequest):
+    """
+    直接写入内容到 Joplin。
+    支持传入路径、标题、内容和标签。
+    """
+    if not req.title.strip():
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not req.body.strip():
+        raise HTTPException(status_code=400, detail="内容不能为空")
+    if not req.joplin_path.strip():
+        raise HTTPException(status_code=400, detail="Joplin 路径不能为空")
+
+    try:
+        # 初始化 Joplin 工具
+        settings = get_settings()
+
+        joplin_tool = JoplinToolbox(settings.JOPLIN_TOKEN, url=settings.JOPLIN_HOST)
+
+        # 创建笔记
+        note_id, error_msg = joplin_tool.create_note(
+            title=req.title.strip(),
+            body=req.body.strip(),
+            notebook_path=req.joplin_path.strip(),
+            tags=req.tags or []
+        )
+        
+        if note_id:
+            return {
+                "success": True,
+                "note_id": note_id,
+                "message": f"成功同步到 Joplin: {req.title}"
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=error_msg or "写入 Joplin 失败，请检查路径是否正确或 Joplin 服务是否运行"
+            )
+            
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"写入失败: {str(e)}")
