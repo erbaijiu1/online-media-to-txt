@@ -1,8 +1,8 @@
 import os
 import requests
 from faster_whisper import WhisperModel
-from tmp.model_deal import process_text_with_prompt
-from tmp.joplinUtil import JoplinToolbox  # 确保你的 joplinUtil.py 在 tmp 目录下
+from app.tools.model_deal import process_text_with_prompt
+from app.tools.joplinUtil import JoplinToolbox
 
 # --- 配置区 ---
 LLM_API_KEY = os.getenv("LLM_API_KEY", "your-api-key")

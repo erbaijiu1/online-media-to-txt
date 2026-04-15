@@ -4,11 +4,15 @@ from joppy.client_api import ClientApi
 
 
 class JoplinToolbox:
-    def __init__(self, token=None):
+    def __init__(self, token=None, url=None):
         self.token = token or os.getenv("JOPLIN_TOKEN", "")
         if not self.token:
             raise ValueError("❌ 未检测到 JOPLIN_TOKEN")
-        self.api = ClientApi(token=self.token)
+        # url 例如 "http://host.docker.internal:41184"，不传则用 joppy 默认的 localhost:41184
+        if url:
+            self.api = ClientApi(token=self.token, url=url)
+        else:
+            self.api = ClientApi(token=self.token)
         self._path_map = {}  # 缓存 路径 -> ID 的映射
 
     def _refresh_path_map(self):

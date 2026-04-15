@@ -1,1 +1,13 @@
 .idea
+.env
+__pycache__/
+*.pyc
+*.pyo
+temp_audio/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.DS_Store
+plugin/icons/*.svg
