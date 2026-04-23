@@ -12,6 +12,11 @@ from app.config import get_settings
 from app.models.schemas import TaskStatus
 from app.tools.model_deal import process_text_with_prompt
 from app.tools.joplinUtil import JoplinToolbox
+from app.services.segment_transcriber import (
+    build_duration_segments,
+    init_or_load_manifest,
+    transcribe_segments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +24,8 @@ logger = logging.getLogger(__name__)
 tasks: Dict[str, dict] = {}
 
 # 线程池 (Whisper 是 CPU 密集型，限制并发)
-executor = ThreadPoolExecutor(max_workers=5)
+_settings_for_executor = get_settings()
+executor = ThreadPoolExecutor(max_workers=_settings_for_executor.MAX_WORKERS)
 
 # 全局 Whisper 模型 (启动时加载一次)
 _whisper_model: WhisperModel = None
@@ -99,8 +105,15 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
     temp_dir = settings.TEMP_AUDIO_DIR
     os.makedirs(temp_dir, exist_ok=True)
 
-    local_path = os.path.join(temp_dir, f"{alias}.mp3")
-    final_txt_path = os.path.join(temp_dir, f"{alias}_final.txt")
+    # 为每个任务使用独立 workdir，避免 alias 冲突，并支持断点续跑
+    safe_alias = alias.replace(os.sep, "_")
+    work_dir = os.path.join(temp_dir, safe_alias)
+    segments_dir = os.path.join(work_dir, "segments")
+    os.makedirs(work_dir, exist_ok=True)
+
+    local_path = os.path.join(work_dir, "source.mp3")
+    final_txt_path = os.path.join(work_dir, "final.txt")
+    raw_txt_path = os.path.join(work_dir, "raw.txt")
 
     try:
         final_content = None
@@ -137,14 +150,64 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
             logger.info(f"[{task_id}] 开始 Whisper 转录...")
 
             model = get_whisper_model()
-            segments, _ = model.transcribe(local_path, beam_size=1, vad_filter=True)
-            raw_text = "\n".join([s.text for s in segments])
+
+            def _on_seg_progress(done: int, total: int, msg: str):
+                _update_task(task_id, TaskStatus.TRANSCRIBING, f"{msg} ({done}/{total})")
+
+            if settings.TRANSCRIBE_SEGMENT_ENABLE and settings.SEGMENT_STRATEGY == "duration":
+                _update_task(task_id, TaskStatus.TRANSCRIBING, "正在按时长分段并转写（Whisper）...")
+                logger.info(
+                    f"[{task_id}] 分段转写启用: target={settings.SEGMENT_TARGET_SECONDS}s overlap={settings.SEGMENT_OVERLAP_SECONDS}s"
+                )
+
+                # 若 segments 已存在则尽量复用（断点续跑）
+                if not os.path.exists(segments_dir) or not os.listdir(segments_dir):
+                    segments_list = build_duration_segments(
+                        local_path,
+                        segments_dir=segments_dir,
+                        target_seconds=settings.SEGMENT_TARGET_SECONDS,
+                        overlap_seconds=settings.SEGMENT_OVERLAP_SECONDS,
+                        min_seconds=settings.SEGMENT_MIN_SECONDS,
+                    )
+                    init_or_load_manifest(work_dir, local_path, segments_list)
+                else:
+                    # segments 已存在，但 manifest 可能不存在（兼容手工恢复）
+                    # 通过重新探测并重建分段列表（不会覆盖已有文件名规律）
+                    segments_list = build_duration_segments(
+                        local_path,
+                        segments_dir=segments_dir,
+                        target_seconds=settings.SEGMENT_TARGET_SECONDS,
+                        overlap_seconds=settings.SEGMENT_OVERLAP_SECONDS,
+                        min_seconds=settings.SEGMENT_MIN_SECONDS,
+                    )
+                    init_or_load_manifest(work_dir, local_path, segments_list)
+
+                raw_text = transcribe_segments(
+                    model=model,
+                    work_dir=work_dir,
+                    beam_size=settings.WHISPER_BEAM_SIZE,
+                    vad_filter=settings.WHISPER_VAD_FILTER,
+                    max_retries=settings.SEGMENT_MAX_RETRIES,
+                    retry_backoff_sec=settings.SEGMENT_RETRY_BACKOFF_SEC,
+                    on_progress=_on_seg_progress,
+                )
+            else:
+                segments, _ = model.transcribe(
+                    local_path,
+                    beam_size=settings.WHISPER_BEAM_SIZE,
+                    vad_filter=settings.WHISPER_VAD_FILTER,
+                )
+                raw_text = "\n".join([s.text for s in segments])
 
             if not raw_text.strip():
                 _update_task(task_id, TaskStatus.FAILED, error="音频识别结果为空")
                 return
 
             logger.info(f"[{task_id}] ✅ 转录完成，共 {len(raw_text)} 字")
+
+            with open(raw_txt_path, "w", encoding="utf-8") as f:
+                f.write(raw_text)
+            logger.info(f"[{task_id}] 💾 已保存原始转录文本: {raw_txt_path}")
 
             # ===== 3. LLM 文本整理 =====
             _update_task(task_id, TaskStatus.LLM_PROCESSING, "正在调用 LLM 整理文本...")
@@ -175,10 +238,17 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
             _update_task(task_id, TaskStatus.COMPLETED, "✅ 全部完成！已同步到 Joplin")
             logger.info(f"[{task_id}] ✅ 全部完成")
 
-            # 同步成功后才删除 MP3 临时文件（保留 txt 作为备份）
-            if os.path.exists(local_path):
-                os.remove(local_path)
-                logger.info(f"[{task_id}] 🗑️ 已清理 MP3 临时文件")
+            # 同步成功后清理 workdir
+            try:
+                for root, dirs, files in os.walk(work_dir, topdown=False):
+                    for name in files:
+                        os.remove(os.path.join(root, name))
+                    for name in dirs:
+                        os.rmdir(os.path.join(root, name))
+                os.rmdir(work_dir)
+                logger.info(f"[{task_id}] 🗑️ 已清理所有临时文件: {work_dir}")
+            except Exception as cleanup_err:
+                logger.warning(f"[{task_id}] 清理临时文件失败(可忽略): {cleanup_err}")
         else:
             error_detail = error_msg or "Joplin 同步失败，请检查路径和 Token"
             _update_task(task_id, TaskStatus.FAILED, error=error_detail)
