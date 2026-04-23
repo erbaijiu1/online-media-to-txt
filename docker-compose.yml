@@ -12,5 +12,5 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./server/app:/app/app
-      - ./temp_audio:/app/temp_audio
+      - ./temp_audio:/tmp/temp_audio
     restart: unless-stopped
