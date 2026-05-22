@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     WHISPER_COMPUTE_TYPE: str = "int8"
 
     # 转写并发（强烈建议 CPU 下保持 1，避免 OOM/崩溃）
-    MAX_WORKERS: int = 1
+    MAX_WORKERS: int = 4
 
     # ===== 超长音频分段转写配置（根治 OOM） =====
     # 是否启用分段转写

@@ -31,4 +31,4 @@ RUN mkdir -p /tmp/temp_audio
 EXPOSE 8000
 
 # 启动 FastAPI 服务
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
