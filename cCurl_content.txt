@@ -1,0 +1,20 @@
+curl 'https://quanzi.xiaoe-tech.com/xe.community.community_service/small_community/xe.community/get_feeds_list/1.1.0?app_id=appfvn6my9u7697&community_id=c_681093d003034_of5fEXvq6292&feeds_list_type=-1&order_filed=created_at&hide_exercise=1&page=1&page_size=10&created_start_at=&created_end_at=' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6' \
+  -H 'agent-type: pc' \
+  -H 'app_id: appfvn6my9u7697' \
+  -b 'sensorsdata2015jssdkcross=%7B%22%24device_id%22%3A%22199e6f837e52e8-05ad85a17d1d81-7e433c49-1930176-199e6f837e6a22%22%7D; sa_jssdk_2015_quanzi_xiaoe-tech_com=%7B%22distinct_id%22%3A%22199e6f837e52e8-05ad85a17d1d81-7e433c49-1930176-199e6f837e6a22%22%2C%22first_id%22%3A%22%22%2C%22props%22%3A%7B%22%24latest_traffic_source_type%22%3A%22%E7%A4%BE%E4%BA%A4%E7%BD%91%E7%AB%99%E6%B5%81%E9%87%8F%22%2C%22%24latest_search_keyword%22%3A%22%E6%9C%AA%E5%8F%96%E5%88%B0%E5%80%BC%22%2C%22%24latest_referrer%22%3A%22https%3A%2F%2Fopen.weixin.qq.com%2F%22%7D%7D; app_id=appfvn6my9u7697; activity_id=appfvn6my9u7697-c_681093d003034_of5fEXvq6292; last_created_token_app_id=appfvn6my9u7697; pc_token_appfvn6my9u7697=96abb8d7c155d2c033f4aa010de23a57; user_id_appfvn6my9u7697=u_6832a87b234c6_MEm8xxWR20; union_id=oTHW5v01dkPhbJ4Q1hkpvcIQ8xS0' \
+  -H 'login_app_id: appfvn6my9u7697' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://quanzi.xiaoe-tech.com/c_681093d003034_of5fEXvq6292/feed_list?app_id=appfvn6my9u7697' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Microsoft Edge";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: same-origin' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36 Edg/148.0.0.0' \
+  -H 'x-b3-flags: 1' \
+  -H 'x-b3-sampled: 1' \
+  -H 'x-b3-spanid: 3a54a73862315475' \
+  -H 'x-b3-traceid: a5987644a66a2365'

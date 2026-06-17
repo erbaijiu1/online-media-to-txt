@@ -13,4 +13,5 @@ services:
     volumes:
       - ./server/app:/app/app
       - ./temp_audio:/tmp/temp_audio
+      - ./hf_cache:/app/hf_cache
     restart: unless-stopped

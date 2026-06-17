@@ -59,27 +59,28 @@ curl http://localhost:8000/api/health
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/convert` | 提交转换任务 |
-| GET | `/api/tasks/{id}` | 查询任务状态 |
+| POST | `/api/convert` | 提交音频转换任务 |
+| GET | `/api/tasks/{id}` | 查询转换任务状态 |
 | GET | `/api/health` | 健康检查 |
+| POST | `/api/xiaoe/upload-curl` | 上传小鹅通 cURL，后台自动抓取帖子并同步 Joplin |
 
 ### 提交任务示例
 
-```bash
-curl -X POST http://localhost:8000/api/convert \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com/audio.mp3",
-    "alias": "我的笔记标题",
-    "joplin_path": "Project/stock/直播"
-  }'
-```
+### 提交抓取小鹅通任务示例 (支持断点续传)
 
 ```bash
-curl http://localhost:8000/api/tasks/e6396aaf
-
-
+curl -X POST http://localhost:8000/api/xiaoe/upload-curl \
+  -F "file=@curl_content.txt" \
+  -F "joplin_path=Project/stock/不惑少年/帖子" \
+  -F "start_page=1" \
+  -F "limit=0"
 ```
+**参数说明：**
+- `file`: (必填) 从浏览器里复制出的 `Copy as cURL (bash)` 文本文件。
+- `joplin_path`: (必填) 将帖子同步到 Joplin 的目标笔记本路径。
+- `start_page`: (可选) 起始页码，用于报错断开时接着之前的页数继续抓取，默认为 `1`。
+- `limit`: (可选) 本次抓取的最大页数限制，传 `0` 则表示不限制或读取 `.env` 中设置的默认值。
+
 
 ## 项目结构
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from app.models.schemas import (
     ConvertRequest,
     ConvertResponse,
@@ -7,6 +7,7 @@ from app.models.schemas import (
     JoplinWriteRequest,
 )
 from app.services.converter import submit_task, get_task_status, is_whisper_loaded
+from app.services.xiaoe_fetcher import submit_fetch_task
 from app.tools.joplinUtil import JoplinToolbox
 
 from app.config import get_settings
@@ -100,3 +101,36 @@ async def write_to_joplin(req: JoplinWriteRequest):
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"写入失败: {str(e)}")
+
+
+@router.post("/xiaoe/upload-curl")
+async def upload_curl_for_xiaoe(
+    file: UploadFile = File(..., description="包含 curl 请求的文本文件"),
+    joplin_path: str = Form(..., description="Joplin 笔记本路径，例如 Project/stock/不惑少年/帖子"),
+    start_page: int = Form(1, description="起始页码"),
+    limit: int = Form(0, description="本次抓取的最大页数限制，0表示不限制，直到全部抓取完")
+):
+    """
+    上传一个 curl 请求文件，后台自动抓取小鹅通帖子并同步到 MySQL 和 Joplin。
+    - file: curl 请求的文本文件
+    - joplin_path: 必填，Joplin 笔记本路径
+    - start_page: 起始抓取页码
+    - limit: 最大抓取页数
+    """
+    if not joplin_path.strip():
+        raise HTTPException(status_code=400, detail="joplin_path 不能为空")
+
+    content = await file.read()
+    curl_string = content.decode("utf-8")
+
+    if not curl_string.strip():
+        raise HTTPException(status_code=400, detail="上传的文件内容为空")
+
+    task_id = submit_fetch_task(curl_string=curl_string, joplin_path=joplin_path.strip(), start_page=start_page, limit=limit)
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "抓取任务已提交到后台执行，帖子将写入 MySQL 并同步到 Joplin"
+    }
+

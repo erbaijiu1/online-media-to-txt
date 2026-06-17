@@ -18,9 +18,12 @@ WORKDIR /app
 
 # 先安装 Python 依赖 (利用 Docker 缓存，使用腾讯云 PyPI 镜像)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    -i https://mirrors.cloud.tencent.com/pypi/simple/ \
-    --trusted-host mirrors.cloud.tencent.com
+RUN pip install --upgrade pip \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com && \
+    pip install --no-cache-dir -r requirements.txt \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com
 
 # 复制应用代码
 COPY . .

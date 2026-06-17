@@ -98,6 +98,46 @@ class JoplinToolbox:
             print(error_msg)
             return None, error_msg
 
+    def get_or_create_note_by_title(self, title, notebook_path):
+        """
+        根据标题和路径查找笔记，如果不存在则创建。
+        返回: note_id
+        """
+        try:
+            notebook_id = self.get_notebook_id_by_strict_path(notebook_path)
+            # 遍历寻找
+            notes = self.api.get_all_notes(fields="id,title,parent_id")
+            for note in notes:
+                if note.parent_id == notebook_id and note.title == title:
+                    return note.id
+            
+            # 不存在则创建空笔记
+            note_id = self.api.add_note(title=title, body="", parent_id=notebook_id)
+            print(f"✨ 笔记未找到，已新建: [{notebook_path}] -> {title}")
+            return note_id
+        except FileNotFoundError as e:
+            print(f"❌ 路径错误: {e}")
+            raise
+        except Exception as e:
+            print(f"❌ 查询或创建笔记失败: {e}")
+            raise
+
+    def update_note(self, note_id, title=None, body=None):
+        """
+        更新已有笔记
+        """
+        kwargs = {}
+        if title is not None:
+            kwargs['title'] = title
+        if body is not None:
+            kwargs['body'] = body
+        
+        if kwargs:
+            self.api.modify_note(note_id, **kwargs)
+            print(f"✨ 笔记已更新: {note_id}")
+
+
+
 
 if __name__ == "__main__":
     TOKEN = os.getenv("JOPLIN_TOKEN", "你的TOKEN")

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.services.converter import init_whisper_model
+from app.models.db_mysql import init_db
 
 # 配置日志
 logging.basicConfig(
@@ -16,9 +17,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理：启动时预加载 Whisper 模型"""
+    """应用生命周期管理：启动时预加载 Whisper 模型 + 初始化 MySQL 表"""
     logger.info("🚀 服务启动中，预加载 Whisper 模型...")
     init_whisper_model()
+    logger.info("🗄️ 初始化 MySQL 数据库表...")
+    init_db()
     logger.info("✅ 服务就绪")
     yield
     logger.info("👋 服务停止")
