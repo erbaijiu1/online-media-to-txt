@@ -205,7 +205,7 @@ def transcribe_segments(
                 )
                 text = "".join([s.text for s in segments_iter]).strip()
                 if not text:
-                    raise RuntimeError("Empty transcription")
+                    logger.info(f"Segment {idx+1} transcription is empty (likely silence).")
 
                 os.makedirs(os.path.dirname(text_path), exist_ok=True)
                 with open(text_path, "w", encoding="utf-8") as f:

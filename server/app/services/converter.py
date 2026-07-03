@@ -1,6 +1,7 @@
 import os
 import uuid
 import logging
+import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict
@@ -20,12 +21,81 @@ from app.services.segment_transcriber import (
 
 logger = logging.getLogger(__name__)
 
-# 全局任务存储 (内存中，重启会丢失；生产环境可换 Redis)
+# 全局任务存储 (支持本地 JSON 持久化)
 tasks: Dict[str, dict] = {}
 
 # 线程池 (Whisper 是 CPU 密集型，限制并发)
 _settings_for_executor = get_settings()
 executor = ThreadPoolExecutor(max_workers=_settings_for_executor.MAX_WORKERS)
+
+QUEUE_FILE_PATH = os.path.join(_settings_for_executor.TEMP_AUDIO_DIR, "tasks_queue.json")
+
+
+def _save_tasks_to_file():
+    """保存任务列表到本地 JSON 文件"""
+    try:
+        os.makedirs(os.path.dirname(QUEUE_FILE_PATH), exist_ok=True)
+        serialized = {}
+        for tid, t in tasks.items():
+            serialized[tid] = {
+                "task_id": t["task_id"],
+                "url": t.get("url", ""),
+                "alias": t.get("alias", ""),
+                "joplin_path": t.get("joplin_path", ""),
+                "status": t["status"].value if hasattr(t["status"], "value") else str(t["status"]),
+                "progress": t.get("progress", ""),
+                "error": t.get("error"),
+                "created_at": t["created_at"].isoformat() if isinstance(t["created_at"], datetime) else str(t["created_at"]),
+                "completed_at": t["completed_at"].isoformat() if isinstance(t["completed_at"], datetime) else (str(t["completed_at"]) if t.get("completed_at") else None)
+            }
+        
+        # 采用临时文件+重命名的方式，保证原子写入，防止进程崩溃时写坏文件
+        temp_path = QUEUE_FILE_PATH + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(serialized, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, QUEUE_FILE_PATH)
+    except Exception as e:
+        logger.error(f"保存任务队列 JSON 失败: {e}")
+
+
+def _load_tasks_from_file():
+    """从本地 JSON 文件加载任务列表"""
+    global tasks
+    if not os.path.exists(QUEUE_FILE_PATH):
+        return
+    try:
+        with open(QUEUE_FILE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for tid, t in data.items():
+            tasks[tid] = {
+                "task_id": t["task_id"],
+                "url": t.get("url", ""),
+                "alias": t.get("alias", ""),
+                "joplin_path": t.get("joplin_path", ""),
+                "status": TaskStatus(t["status"]),
+                "progress": t.get("progress", ""),
+                "error": t.get("error"),
+                "created_at": datetime.fromisoformat(t["created_at"]) if t.get("created_at") else datetime.now(),
+                "completed_at": datetime.fromisoformat(t["completed_at"]) if t.get("completed_at") else None,
+            }
+    except Exception as e:
+        logger.error(f"加载任务队列 JSON 失败: {e}")
+
+
+def resume_interrupted_tasks():
+    """服务启动时恢复所有未完成的任务"""
+    _load_tasks_from_file()
+    interrupted_count = 0
+    for tid, t in list(tasks.items()):
+        if t["status"] not in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+            # 将中间态任务全部重置为 PENDING，并重新加入线程池队列中排队
+            t["status"] = TaskStatus.PENDING
+            t["progress"] = "排队中 (重启后自动恢复)..."
+            executor.submit(_run_conversion, tid, t["url"], t["alias"], t["joplin_path"])
+            interrupted_count += 1
+    if interrupted_count > 0:
+        logger.info(f"🔄 发现并自动恢复了 {interrupted_count} 个未完成的任务")
+        _save_tasks_to_file()
 
 # 全局 Whisper 模型 (启动时加载一次)
 _whisper_model: WhisperModel = None
@@ -63,12 +133,16 @@ def submit_task(url: str, alias: str, joplin_path: str) -> str:
     task_id = str(uuid.uuid4())[:8]
     tasks[task_id] = {
         "task_id": task_id,
+        "url": url,
+        "alias": alias,
+        "joplin_path": joplin_path,
         "status": TaskStatus.PENDING,
         "progress": "排队中...",
         "error": None,
         "created_at": datetime.now(),
         "completed_at": None,
     }
+    _save_tasks_to_file()
 
     # 提交到线程池
     executor.submit(_run_conversion, task_id, url, alias, joplin_path)
@@ -89,6 +163,7 @@ def _update_task(task_id: str, status: TaskStatus, progress: str = "", error: st
             tasks[task_id]["error"] = error
         if status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
             tasks[task_id]["completed_at"] = datetime.now()
+        _save_tasks_to_file()
 
 
 def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):

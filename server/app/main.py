@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
-from app.services.converter import init_whisper_model
+from app.services.converter import init_whisper_model, resume_interrupted_tasks
 from app.models.db_mysql import init_db
 
 # 配置日志
@@ -22,6 +22,11 @@ async def lifespan(app: FastAPI):
     init_whisper_model()
     logger.info("🗄️ 初始化 MySQL 数据库表...")
     init_db()
+    logger.info("🔄 恢复未完成的音频转换任务...")
+    try:
+        resume_interrupted_tasks()
+    except Exception as e:
+        logger.error(f"恢复历史任务失败: {e}")
     logger.info("✅ 服务就绪")
     yield
     logger.info("👋 服务停止")
