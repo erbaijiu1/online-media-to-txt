@@ -35,8 +35,10 @@ def _save_tasks_to_file():
     """保存任务列表到本地 JSON 文件"""
     try:
         os.makedirs(os.path.dirname(QUEUE_FILE_PATH), exist_ok=True)
+        # 按入队列时间升序排序
+        sorted_tasks = sorted(tasks.items(), key=lambda item: item[1]["created_at"])
         serialized = {}
-        for tid, t in tasks.items():
+        for tid, t in sorted_tasks:
             serialized[tid] = {
                 "task_id": t["task_id"],
                 "url": t.get("url", ""),
