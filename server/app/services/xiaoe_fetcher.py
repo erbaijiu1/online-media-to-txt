@@ -97,6 +97,10 @@ def run_xiaoe_fetch_task(curl_string: str, joplin_path: str, start_page: int = 1
         parsed_url = urllib.parse.urlparse(url)
         query_params = urllib.parse.parse_qs(parsed_url.query)
         
+        # 移除原 curl 中可能自带的 cursor 参数，强制依赖 page 翻页，确保总是从最新数据开始抓取
+        if 'cursor' in query_params:
+            del query_params['cursor']
+        
         page = start_page
         fetched_count = 0
         consecutive_unchanged = 0
