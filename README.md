@@ -25,6 +25,8 @@ cp .env.example .env
 **需要的环境变量：**
 - `DASHSCOPE_API_KEY`: 通义千问 API Key
 - `JOPLIN_TOKEN`: Joplin 桌面客户端 → 选项 → Web Clipper → Token
+- `WHISPER_LANGUAGE`: 转写语言，默认 `zh`；设为 `auto` 可自动识别
+- `WHISPER_SIMPLIFIED_CHINESE`: 是否将转写结果统一转换为简体中文，默认 `true`
 
 ### 2. 启动后端服务
 

@@ -170,6 +170,8 @@ def transcribe_segments(
     vad_filter: bool,
     max_retries: int,
     retry_backoff_sec: float,
+    language: str | None = None,
+    initial_prompt: str | None = None,
     on_progress=None,
 ) -> str:
     """Transcribe all segments described by manifest; returns merged raw text."""
@@ -202,6 +204,8 @@ def transcribe_segments(
                     seg_path,
                     beam_size=beam_size,
                     vad_filter=vad_filter,
+                    language=language,
+                    initial_prompt=initial_prompt,
                 )
                 text = "".join([s.text for s in segments_iter]).strip()
                 if not text:
@@ -243,4 +247,3 @@ def transcribe_segments(
             merged_parts.append(f.read().strip())
 
     return "\n".join([p for p in merged_parts if p])
-

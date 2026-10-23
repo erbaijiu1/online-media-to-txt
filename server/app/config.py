@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     WHISPER_MODEL_SIZE: str = "small"
     WHISPER_DEVICE: str = "cpu"
     WHISPER_COMPUTE_TYPE: str = "int8"
+    # 固定中文可避免短分段被误判为其他语言；设为 auto 可恢复自动识别
+    WHISPER_LANGUAGE: str = "zh"
+    # 提示 Whisper 优先输出简体中文（最终仍会通过 OpenCC 做确定性转换）
+    WHISPER_INITIAL_PROMPT: str = "以下是普通话内容，请使用简体中文转写。"
+    WHISPER_SIMPLIFIED_CHINESE: bool = True
 
     # 转写并发（强烈建议 CPU 下保持 1，避免 OOM/崩溃）
     MAX_WORKERS: int = 1

@@ -5,10 +5,9 @@ from typing import List, Dict, Optional, Generator, Union
 
 def chat_with_model(
         messages: List[Dict[str, str]],
-        model_name: str = "qwen3-235b-a22b-thinking-2507",
+        model_name: str = "qwen3.8-flash",
         api_key: Optional[str] = None,
-        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        stream: bool = True
+        base_url: str = "https://llm-fihg3x9syo13k841.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
 ) -> Generator[Union[tuple, str], None, None]:
     """
     与支持思考过程的模型进行对话，区分显示思考过程和最终回复
@@ -18,7 +17,6 @@ def chat_with_model(
         model_name: 模型名称
         api_key: API密钥，如果为None则从环境变量DASHSCOPE_API_KEY获取
         base_url: API基础URL
-        stream: 是否使用流式响应
 
     返回:
         生成器，逐步返回思考过程和最终回复
@@ -31,39 +29,43 @@ def chat_with_model(
 
     # 根据模型名称决定是否需要额外参数
     extra_body = {}
-    if model_name.startswith("qwen-plus") or model_name.startswith("qwen-max"):
+    if model_name.startswith("qwen-plus") or model_name.startswith("qwen-max") or model_name.startswith("qwen3"):
         extra_body = {"enable_thinking": True}
 
-    # 创建流式请求
-    completion = client.chat.completions.create(
+    # 创建非流式请求（Responses API）
+    response = client.responses.create(
         model=model_name,
-        messages=messages,
-        stream=stream,
+        input=messages,
         **({"extra_body": extra_body} if extra_body else {})
     )
 
     is_answering = False  # 是否进入正式回复阶段
 
-    # 处理流式响应
-    for chunk in completion:
-        delta = chunk.choices[0].delta
+    # 解析响应输出，区分思考过程和最终回复
+    for item in response.output:
+        if item.type == "reasoning":
+            # 思考过程（推理过程摘要）
+            thinking_text = "".join(
+                getattr(summary, "text", "") or "" for summary in item.summary
+            )
+            if thinking_text and not is_answering:
+                yield ("thinking", thinking_text)
 
-        # 处理思考内容
-        if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
-            if not is_answering:
-                yield ("thinking", delta.reasoning_content)
-
-        # 处理正式回复内容
-        if hasattr(delta, "content") and delta.content:
+        elif item.type == "message":
+            # 最终答案
+            answer_text = "".join(
+                getattr(content, "text", "") or "" for content in item.content
+            )
             if not is_answering:
                 yield ("answer_start", None)
                 is_answering = True
-            yield ("answer", delta.content)
+            if answer_text:
+                yield ("answer", answer_text)
 
 
 def run_chat_demo(
         prompt: str,
-        model_name: str = "qwen3-235b-a22b-thinking-2507"
+        model_name: str = "qwen3.8-flash"
 ):
     """
     运行聊天演示，直观展示思考过程和最终回复
@@ -97,7 +99,7 @@ def run_chat_demo(
 
     return ''.join(full_answer)
 
-def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3-235b-a22b-thinking-2507"):
+def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3.8-flash"):
     if not need_deal_txt:
         print("没有待处理的文本")
         return
@@ -109,7 +111,7 @@ def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3-235b-
     1. 保持原文内容，只调整格式和段落，通过上下文理解，有错误的词语需要纠正。
     2. 可以合并成一行的短句合并成一行，可以组成一段的内容合并成一段
     3. [根据需要添加：帮我加上合适的标点符号]
-    4. [根据需要添加：如果是繁体中文，帮我转换成简体中文]
+    4. 输出统一使用简体中文；如果原文含有繁体中文，请转换成简体中文。
     5. 保持原文的口语风格和表达特点，尽量不调整语义，错别字或者词语可以调整。
     6. 由于是语音转文字，所以，一些由语音转换来的词需要整体通过语境判断是不是对的，错误的纠正过来。
     7. 在输出原文后，在最后，输出一个对原文内容的总结。总结不需要添加观点，严格遵守原文的意思来进行总结。如果是提问与回答，就分列出提问和回答对应总结。
@@ -124,7 +126,7 @@ def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3-235b-
 # 使用示例
 if __name__ == "__main__":
     # 示例1: 使用默认模型（支持思考过程的模型）
-    run_chat_demo("请解释量子计算的基本原理", "qwen3-235b-a22b-thinking-2507")
+    run_chat_demo("请解释量子计算的基本原理", "qwen3.8-flash")
 
     # 示例2: 使用需要额外参数的模型
     run_chat_demo("请解释相对论的基本原理", "qwen-plus-2025-07-28")

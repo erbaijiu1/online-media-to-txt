@@ -8,6 +8,7 @@ from typing import Dict
 
 import requests
 from faster_whisper import WhisperModel
+from opencc import OpenCC
 
 from app.config import get_settings
 from app.models.schemas import TaskStatus
@@ -101,6 +102,20 @@ def resume_interrupted_tasks():
 
 # 全局 Whisper 模型 (启动时加载一次)
 _whisper_model: WhisperModel = None
+_traditional_to_simplified = OpenCC("t2s")
+
+
+def _normalize_whisper_language(language: str) -> str | None:
+    """Convert the user-facing 'auto' value to faster-whisper's auto-detect value."""
+    normalized = language.strip().lower()
+    return None if not normalized or normalized == "auto" else normalized
+
+
+def _normalize_transcript(text: str, simplified_chinese: bool) -> str:
+    """Apply deterministic output-script normalization after transcription."""
+    if simplified_chinese:
+        return _traditional_to_simplified.convert(text)
+    return text
 
 
 def init_whisper_model():
@@ -266,6 +281,8 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
                     vad_filter=settings.WHISPER_VAD_FILTER,
                     max_retries=settings.SEGMENT_MAX_RETRIES,
                     retry_backoff_sec=settings.SEGMENT_RETRY_BACKOFF_SEC,
+                    language=_normalize_whisper_language(settings.WHISPER_LANGUAGE),
+                    initial_prompt=settings.WHISPER_INITIAL_PROMPT or None,
                     on_progress=_on_seg_progress,
                 )
             else:
@@ -273,8 +290,15 @@ def _run_conversion(task_id: str, url: str, alias: str, joplin_path: str):
                     local_path,
                     beam_size=settings.WHISPER_BEAM_SIZE,
                     vad_filter=settings.WHISPER_VAD_FILTER,
+                    language=_normalize_whisper_language(settings.WHISPER_LANGUAGE),
+                    initial_prompt=settings.WHISPER_INITIAL_PROMPT or None,
                 )
                 raw_text = "\n".join([s.text for s in segments])
+
+            raw_text = _normalize_transcript(
+                raw_text,
+                simplified_chinese=settings.WHISPER_SIMPLIFIED_CHINESE,
+            )
 
             if not raw_text.strip():
                 _update_task(task_id, TaskStatus.FAILED, error="音频识别结果为空")
