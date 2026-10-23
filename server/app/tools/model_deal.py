@@ -1,16 +1,66 @@
 from openai import OpenAI
+import httpx
 import os
-from typing import List, Dict, Optional, Generator, Union
+from typing import Any, Dict, Generator, Iterable, List, Optional, Union
+
+from app.config import get_settings
+
+
+def _event_error_message(event: Any) -> str:
+    """Extract a useful error message from Responses API terminal events."""
+    response = getattr(event, "response", None)
+    error = getattr(response, "error", None) or getattr(event, "error", None)
+    message = getattr(error, "message", None) or getattr(event, "message", None)
+    code = getattr(error, "code", None) or getattr(event, "code", None)
+    if code and message:
+        return f"{code}: {message}"
+    return message or code or "未知错误"
+
+
+def _iter_response_events(events: Iterable[Any]) -> Generator[tuple, None, None]:
+    """Yield text deltas and accept output only after response.completed."""
+    completed = False
+    answer_started = False
+    received_text = False
+
+    for event in events:
+        event_type = getattr(event, "type", "")
+
+        if event_type == "response.output_text.delta":
+            delta = getattr(event, "delta", "") or ""
+            if not delta:
+                continue
+            if not answer_started:
+                yield ("answer_start", None)
+                answer_started = True
+            received_text = True
+            yield ("answer", delta)
+        elif event_type == "response.completed":
+            completed = True
+        elif event_type == "response.incomplete":
+            response = getattr(event, "response", None)
+            details = getattr(response, "incomplete_details", None)
+            reason = getattr(details, "reason", None) or "未知原因"
+            raise RuntimeError(f"模型响应不完整: {reason}")
+        elif event_type == "response.failed":
+            raise RuntimeError(f"模型响应失败: {_event_error_message(event)}")
+        elif event_type == "error":
+            raise RuntimeError(f"模型流式请求错误: {_event_error_message(event)}")
+
+    if not completed:
+        raise RuntimeError("模型流式响应意外结束，未收到 response.completed")
+    if not received_text:
+        raise RuntimeError("模型响应已完成，但没有返回正文")
 
 
 def chat_with_model(
         messages: List[Dict[str, str]],
-        model_name: str = "qwen3.8-flash",
+        model_name: str = "qwen3.8-max-0902",
         api_key: Optional[str] = None,
         base_url: str = "https://llm-fihg3x9syo13k841.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
 ) -> Generator[Union[tuple, str], None, None]:
     """
-    与支持思考过程的模型进行对话，区分显示思考过程和最终回复
+    通过 Responses API 流式调用模型，并返回最终正文增量
 
     参数:
         messages: 消息列表，格式为[{"role": "user", "content": "消息内容"}]
@@ -19,53 +69,37 @@ def chat_with_model(
         base_url: API基础URL
 
     返回:
-        生成器，逐步返回思考过程和最终回复
+        生成器，逐步返回 answer_start 和 answer 事件
     """
-    # 初始化客户端
+    settings = get_settings()
+
+    # 流式读取按“连续无数据时间”计时；限制重试，避免请求静默等待几十分钟。
     client = OpenAI(
         api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
-        base_url=base_url.strip()
+        base_url=base_url.strip(),
+        timeout=httpx.Timeout(
+            connect=settings.LLM_CONNECT_TIMEOUT_SEC,
+            read=settings.LLM_READ_TIMEOUT_SEC,
+            write=60.0,
+            pool=10.0,
+        ),
+        max_retries=settings.LLM_MAX_RETRIES,
     )
 
-    # 根据模型名称决定是否需要额外参数
-    extra_body = {}
-    if model_name.startswith("qwen-plus") or model_name.startswith("qwen-max") or model_name.startswith("qwen3"):
-        extra_body = {"enable_thinking": True}
-
-    # 创建非流式请求（Responses API）
-    response = client.responses.create(
+    # 文本整理不需要推理过程；显式关闭，避免模型默认开启思考而增加延迟。
+    stream = client.responses.create(
         model=model_name,
         input=messages,
-        **({"extra_body": extra_body} if extra_body else {})
+        stream=True,
+        extra_body={"enable_thinking": False},
     )
 
-    is_answering = False  # 是否进入正式回复阶段
-
-    # 解析响应输出，区分思考过程和最终回复
-    for item in response.output:
-        if item.type == "reasoning":
-            # 思考过程（推理过程摘要）
-            thinking_text = "".join(
-                getattr(summary, "text", "") or "" for summary in item.summary
-            )
-            if thinking_text and not is_answering:
-                yield ("thinking", thinking_text)
-
-        elif item.type == "message":
-            # 最终答案
-            answer_text = "".join(
-                getattr(content, "text", "") or "" for content in item.content
-            )
-            if not is_answering:
-                yield ("answer_start", None)
-                is_answering = True
-            if answer_text:
-                yield ("answer", answer_text)
+    yield from _iter_response_events(stream)
 
 
 def run_chat_demo(
         prompt: str,
-        model_name: str = "qwen3.8-flash"
+        model_name: str = "qwen3.8-max-0902"
 ):
     """
     运行聊天演示，直观展示思考过程和最终回复
@@ -99,7 +133,7 @@ def run_chat_demo(
 
     return ''.join(full_answer)
 
-def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3.8-flash"):
+def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3.8-max-0902"):
     if not need_deal_txt:
         print("没有待处理的文本")
         return
@@ -126,7 +160,7 @@ def process_text_with_prompt(need_deal_txt:  str, model_name: str = "qwen3.8-fla
 # 使用示例
 if __name__ == "__main__":
     # 示例1: 使用默认模型（支持思考过程的模型）
-    run_chat_demo("请解释量子计算的基本原理", "qwen3.8-flash")
+    run_chat_demo("请解释量子计算的基本原理", "qwen3.8-max-0902")
 
     # 示例2: 使用需要额外参数的模型
     run_chat_demo("请解释相对论的基本原理", "qwen-plus-2025-07-28")

@@ -8,6 +8,11 @@ class Settings(BaseSettings):
 
     # LLM 配置 (通义千问)
     DASHSCOPE_API_KEY: str = ""
+    LLM_CONNECT_TIMEOUT_SEC: float = 10.0
+    # 流式响应中，两次数据到达之间允许等待的最长时间
+    LLM_READ_TIMEOUT_SEC: float = 180.0
+    # 最多自动重试一次，避免单个任务静默等待几十分钟
+    LLM_MAX_RETRIES: int = 1
 
     # Joplin 配置
     JOPLIN_TOKEN: str = ""
